@@ -3,7 +3,7 @@ const pDebounce = (functionToDebounce, wait, options = {}) => {
 		throw new TypeError('Expected `wait` to be a finite number');
 	}
 
-	let leadingValue;
+	let leadingPromise;
 	let timeout;
 	let promiseHandlers = []; // Single array of {resolve, reject}
 
@@ -41,12 +41,14 @@ const pDebounce = (functionToDebounce, wait, options = {}) => {
 
 				// Capture the current handlers for this execution
 				const currentHandlers = promiseHandlers;
+				const currentLeadingPromise = leadingPromise;
 
 				// Clear handlers for next cycle (new calls during execution will add to new list)
 				promiseHandlers = [];
+				leadingPromise = undefined;
 
 				try {
-					const result = options.before ? leadingValue : await functionToDebounce.apply(this, arguments_);
+					const result = options.before ? await currentLeadingPromise : await functionToDebounce.apply(this, arguments_);
 
 					for (const {resolve: resolveFunction} of currentHandlers) {
 						resolveFunction(result);
@@ -57,19 +59,17 @@ const pDebounce = (functionToDebounce, wait, options = {}) => {
 					}
 				}
 
-				// Clear leading value for next cycle
-				leadingValue = undefined;
-
 				// Remove abort listener
 				options.signal?.removeEventListener('abort', onAbort);
 			}, wait);
 
 			if (shouldCallNow) {
 				// Execute immediately for leading edge
-				(async () => {
+				leadingPromise = (async () => {
 					try {
-						leadingValue = await functionToDebounce.apply(this, arguments_);
-						resolve(leadingValue);
+						const value = await functionToDebounce.apply(this, arguments_);
+						resolve(value);
+						return value;
 					} catch (error) {
 						reject(error);
 					}

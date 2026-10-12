@@ -1532,3 +1532,32 @@ test('.promise() preserves a falsy initial rejection while processing a queued c
 	]);
 	assert.equal(await debounced('next'), 'next');
 });
+
+test('before option - slow leading calls keep each window tied to its own result', async t => {
+	t.mock.timers.enable({apis: ['setTimeout']});
+	const resolvers = [];
+	const debounced = pDebounce(() => new Promise(resolve => {
+		resolvers.push(resolve);
+	}), 10, {before: true});
+	let suppressedSettled = false;
+	const first = debounced();
+	const suppressed = (async () => {
+		const value = await debounced();
+		suppressedSettled = true;
+		return value;
+	})();
+	t.mock.timers.tick(10);
+	await Promise.resolve();
+	const settledBeforeResult = suppressedSettled;
+	const second = debounced();
+	const secondSuppressed = debounced();
+	resolvers[0]('first');
+	const firstResults = await Promise.all([first, suppressed]);
+	t.mock.timers.tick(10);
+	resolvers[1]('second');
+	const secondResults = await Promise.all([second, secondSuppressed]);
+	assert.equal(settledBeforeResult, false);
+	assert.deepEqual(firstResults, ['first', 'first']);
+	assert.deepEqual(secondResults, ['second', 'second']);
+	assert.equal(resolvers.length, 2);
+});
